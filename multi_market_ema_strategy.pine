@@ -1,0 +1,104 @@
+//@version=6
+strategy("Multi-Market Dominance EMA Break Strategy", overlay=true, max_labels_count=500,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=10,
+     commission_type=strategy.commission.percent, commission_value=0.05)
+
+// === Inputs ===
+ticker_btc_d   = input.symbol("CRYPTOCAP:BTC.D", "BTC Dominance Symbol")
+ticker_usdt_d  = input.symbol("CRYPTOCAP:USDT.D", "USDT Dominance Symbol")
+ticker_total3  = input.symbol("CRYPTOCAP:TOTAL3", "TOTAL3 Symbol")
+reference_tf   = input.timeframe("D", "Reference timeframe for dominance data")
+ema_fast_len   = input.int(5, "Fast EMA", minval=1)
+ema_mid_len    = input.int(8, "Middle EMA", minval=1)
+ema_slow_len   = input.int(13, "Slow EMA", minval=1)
+show_table     = input.bool(true, "Show dominance status table")
+alert_on_vol   = input.bool(true, "Alert when daily volume growth is between +30% and +70%")
+
+// === Helper functions to pull EMAs ===
+pull_ema(_symbol, _len) => request.security(_symbol, reference_tf, ta.ema(close, _len))
+
+btc_ema_fast    = pull_ema(ticker_btc_d, ema_fast_len)
+btc_ema_mid     = pull_ema(ticker_btc_d, ema_mid_len)
+btc_ema_slow    = pull_ema(ticker_btc_d, ema_slow_len)
+
+usdt_ema_fast   = pull_ema(ticker_usdt_d, ema_fast_len)
+usdt_ema_mid    = pull_ema(ticker_usdt_d, ema_mid_len)
+usdt_ema_slow   = pull_ema(ticker_usdt_d, ema_slow_len)
+
+total3_ema_fast = pull_ema(ticker_total3, ema_fast_len)
+total3_ema_mid  = pull_ema(ticker_total3, ema_mid_len)
+total3_ema_slow = pull_ema(ticker_total3, ema_slow_len)
+
+// === Break detection helpers ===
+f_all_above(_fast, _mid, _slow) => _fast > _mid and _mid > _slow
+f_all_below(_fast, _mid, _slow) => _fast < _mid and _mid < _slow
+
+btc_all_above  = f_all_above(btc_ema_fast, btc_ema_mid, btc_ema_slow)
+btc_prev_above = f_all_above(btc_ema_fast[1], btc_ema_mid[1], btc_ema_slow[1])
+btc_all_below  = f_all_below(btc_ema_fast, btc_ema_mid, btc_ema_slow)
+btc_prev_below = f_all_below(btc_ema_fast[1], btc_ema_mid[1], btc_ema_slow[1])
+btc_bull_break = btc_all_above and not btc_prev_above
+btc_bear_break = btc_all_below and not btc_prev_below
+
+usdt_all_above  = f_all_above(usdt_ema_fast, usdt_ema_mid, usdt_ema_slow)
+usdt_prev_above = f_all_above(usdt_ema_fast[1], usdt_ema_mid[1], usdt_ema_slow[1])
+usdt_all_below  = f_all_below(usdt_ema_fast, usdt_ema_mid, usdt_ema_slow)
+usdt_prev_below = f_all_below(usdt_ema_fast[1], usdt_ema_mid[1], usdt_ema_slow[1])
+usdt_bull_break = usdt_all_above and not usdt_prev_above
+usdt_bear_break = usdt_all_below and not usdt_prev_below
+
+total3_all_above  = f_all_above(total3_ema_fast, total3_ema_mid, total3_ema_slow)
+total3_prev_above = f_all_above(total3_ema_fast[1], total3_ema_mid[1], total3_ema_slow[1])
+total3_all_below  = f_all_below(total3_ema_fast, total3_ema_mid, total3_ema_slow)
+total3_prev_below = f_all_below(total3_ema_fast[1], total3_ema_mid[1], total3_ema_slow[1])
+total3_bull_break = total3_all_above and not total3_prev_above
+total3_bear_break = total3_all_below and not total3_prev_below
+
+// === Strategy logic ===
+// BTC.D and TOTAL3 must break in the same direction, while USDT.D must break the opposite way
+long_condition  = btc_bull_break and total3_bull_break and usdt_bear_break
+short_condition = btc_bear_break and total3_bear_break and usdt_bull_break
+
+if long_condition
+    strategy.entry("Tri-Long", strategy.long, comment="BTC/TOTAL3 up, USDT down (5/8/13 EMA stack breaks)")
+if short_condition
+    strategy.entry("Tri-Short", strategy.short, comment="BTC/TOTAL3 down, USDT up (5/8/13 EMA stack breaks)")
+
+// Plot signals on chart background for quick visual reference
+bgcolor(long_condition ? color.new(color.green, 85) : short_condition ? color.new(color.red, 85) : na)
+
+// === Inform about daily volume growth on the traded symbol ===
+daily_volume       = request.security(syminfo.tickerid, "D", volume)
+prev_daily_volume  = request.security(syminfo.tickerid, "D", volume[1])
+vol_growth_percent = na(prev_daily_volume) or prev_daily_volume == 0 ? na : ((daily_volume - prev_daily_volume) / prev_daily_volume) * 100
+volume_in_range    = alert_on_vol and not na(vol_growth_percent) and vol_growth_percent >= 30 and vol_growth_percent <= 70
+
+var label volume_label = na
+if volume_in_range
+    label.delete(volume_label)
+    volume_label := label.new(bar_index, high, text=str.tostring(vol_growth_percent, format.mintick) + "% daily volume growth",
+      color=color.new(color.blue, 0), style=label.style_label_up, textcolor=color.white, size=size.tiny)
+    alert("Daily volume growth between +30% and +70% detected (" + str.tostring(vol_growth_percent, format.mintick) + "%)", alert.freq_once_per_bar)
+
+// === Optional dominance status table ===
+if show_table
+    var table status_table = table.new(position.top_right, 4, 4, frame_color=color.new(color.white, 50), border_width=1)
+    table.cell(status_table, 0, 0, "Symbol", bgcolor=color.new(color.gray, 0), text_color=color.white)
+    table.cell(status_table, 1, 0, "BTC.D", bgcolor=color.new(color.gray, 70))
+    table.cell(status_table, 2, 0, "USDT.D", bgcolor=color.new(color.gray, 70))
+    table.cell(status_table, 3, 0, "TOTAL3", bgcolor=color.new(color.gray, 70))
+
+    table.cell(status_table, 0, 1, "Above 5/8/13", bgcolor=color.new(color.gray, 0), text_color=color.white)
+    table.cell(status_table, 1, 1, btc_all_above ? "Yes" : "No", bgcolor=btc_all_above ? color.new(color.green, 70) : color.new(color.red, 70))
+    table.cell(status_table, 2, 1, usdt_all_above ? "Yes" : "No", bgcolor=usdt_all_above ? color.new(color.green, 70) : color.new(color.red, 70))
+    table.cell(status_table, 3, 1, total3_all_above ? "Yes" : "No", bgcolor=total3_all_above ? color.new(color.green, 70) : color.new(color.red, 70))
+
+    table.cell(status_table, 0, 2, "Below 5/8/13", bgcolor=color.new(color.gray, 0), text_color=color.white)
+    table.cell(status_table, 1, 2, btc_all_below ? "Yes" : "No", bgcolor=btc_all_below ? color.new(color.red, 70) : color.new(color.green, 85))
+    table.cell(status_table, 2, 2, usdt_all_below ? "Yes" : "No", bgcolor=usdt_all_below ? color.new(color.red, 70) : color.new(color.green, 85))
+    table.cell(status_table, 3, 2, total3_all_below ? "Yes" : "No", bgcolor=total3_all_below ? color.new(color.red, 70) : color.new(color.green, 85))
+
+    table.cell(status_table, 0, 3, "Latest break", bgcolor=color.new(color.gray, 0), text_color=color.white)
+    table.cell(status_table, 1, 3, btc_bull_break ? "Bull" : btc_bear_break ? "Bear" : "Neutral", bgcolor=btc_bull_break ? color.new(color.green, 60) : btc_bear_break ? color.new(color.red, 60) : color.new(color.orange, 70))
+    table.cell(status_table, 2, 3, usdt_bull_break ? "Bull" : usdt_bear_break ? "Bear" : "Neutral", bgcolor=usdt_bull_break ? color.new(color.green, 60) : usdt_bear_break ? color.new(color.red, 60) : color.new(color.orange, 70))
+    table.cell(status_table, 3, 3, total3_bull_break ? "Bull" : total3_bear_break ? "Bear" : "Neutral", bgcolor=total3_bull_break ? color.new(color.green, 60) : total3_bear_break ? color.new(color.red, 60) : color.new(color.orange, 70))

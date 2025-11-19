@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 strategy("Multi-Market Dominance EMA Break Strategy", overlay=true, max_labels_count=500,
      default_qty_type=strategy.percent_of_equity, default_qty_value=10,
      commission_type=strategy.commission.percent, commission_value=0.05)
@@ -14,34 +14,45 @@ ema_slow_len   = input.int(13, "Slow EMA", minval=1)
 show_table     = input.bool(true, "Show dominance status table")
 alert_on_vol   = input.bool(true, "Alert when daily volume growth is between +30% and +70%")
 
-// === Helper function to evaluate EMA stack breaks (5/8/13 crossing each other) ===
-f_get_breaks(_fast, _mid, _slow) =>
-    all_above      = _fast > _mid and _mid > _slow
-    prev_all_above = _fast[1] > _mid[1] and _mid[1] > _slow[1]
-    all_below      = _fast < _mid and _mid < _slow
-    prev_all_below = _fast[1] < _mid[1] and _mid[1] < _slow[1]
-    bull_break = all_above and not prev_all_above
-    bear_break = all_below and not prev_all_below
-    [bull_break, bear_break, all_above, all_below]
+// === Helper functions to pull EMAs ===
+pull_ema(_symbol, _len) => request.security(_symbol, reference_tf, ta.ema(close, _len))
 
-// === Pull dominance data ===
-request_emas(_symbol) =>
-    ema_fast = request.security(_symbol, reference_tf, ta.ema(close, ema_fast_len))
-    ema_mid  = request.security(_symbol, reference_tf, ta.ema(close, ema_mid_len))
-    ema_slow = request.security(_symbol, reference_tf, ta.ema(close, ema_slow_len))
-    [ema_fast, ema_mid, ema_slow]
+btc_ema_fast    = pull_ema(ticker_btc_d, ema_fast_len)
+btc_ema_mid     = pull_ema(ticker_btc_d, ema_mid_len)
+btc_ema_slow    = pull_ema(ticker_btc_d, ema_slow_len)
 
-[btc_ema_fast, usdt_ema_fast, total3_ema_fast] = [na, na, na]
-[btc_ema_mid, usdt_ema_mid, total3_ema_mid] = [na, na, na]
-[btc_ema_slow, usdt_ema_slow, total3_ema_slow] = [na, na, na]
+usdt_ema_fast   = pull_ema(ticker_usdt_d, ema_fast_len)
+usdt_ema_mid    = pull_ema(ticker_usdt_d, ema_mid_len)
+usdt_ema_slow   = pull_ema(ticker_usdt_d, ema_slow_len)
 
-[btc_ema_fast, btc_ema_mid, btc_ema_slow]             = request_emas(ticker_btc_d)
-[usdt_ema_fast, usdt_ema_mid, usdt_ema_slow]          = request_emas(ticker_usdt_d)
-[total3_ema_fast, total3_ema_mid, total3_ema_slow]    = request_emas(ticker_total3)
+total3_ema_fast = pull_ema(ticker_total3, ema_fast_len)
+total3_ema_mid  = pull_ema(ticker_total3, ema_mid_len)
+total3_ema_slow = pull_ema(ticker_total3, ema_slow_len)
 
-[btc_bull_break, btc_bear_break, btc_all_above, btc_all_below] = f_get_breaks(btc_ema_fast, btc_ema_mid, btc_ema_slow)
-[usdt_bull_break, usdt_bear_break, usdt_all_above, usdt_all_below] = f_get_breaks(usdt_ema_fast, usdt_ema_mid, usdt_ema_slow)
-[total3_bull_break, total3_bear_break, total3_all_above, total3_all_below] = f_get_breaks(total3_ema_fast, total3_ema_mid, total3_ema_slow)
+// === Break detection helpers ===
+f_all_above(_fast, _mid, _slow) => _fast > _mid and _mid > _slow
+f_all_below(_fast, _mid, _slow) => _fast < _mid and _mid < _slow
+
+btc_all_above  = f_all_above(btc_ema_fast, btc_ema_mid, btc_ema_slow)
+btc_prev_above = f_all_above(btc_ema_fast[1], btc_ema_mid[1], btc_ema_slow[1])
+btc_all_below  = f_all_below(btc_ema_fast, btc_ema_mid, btc_ema_slow)
+btc_prev_below = f_all_below(btc_ema_fast[1], btc_ema_mid[1], btc_ema_slow[1])
+btc_bull_break = btc_all_above and not btc_prev_above
+btc_bear_break = btc_all_below and not btc_prev_below
+
+usdt_all_above  = f_all_above(usdt_ema_fast, usdt_ema_mid, usdt_ema_slow)
+usdt_prev_above = f_all_above(usdt_ema_fast[1], usdt_ema_mid[1], usdt_ema_slow[1])
+usdt_all_below  = f_all_below(usdt_ema_fast, usdt_ema_mid, usdt_ema_slow)
+usdt_prev_below = f_all_below(usdt_ema_fast[1], usdt_ema_mid[1], usdt_ema_slow[1])
+usdt_bull_break = usdt_all_above and not usdt_prev_above
+usdt_bear_break = usdt_all_below and not usdt_prev_below
+
+total3_all_above  = f_all_above(total3_ema_fast, total3_ema_mid, total3_ema_slow)
+total3_prev_above = f_all_above(total3_ema_fast[1], total3_ema_mid[1], total3_ema_slow[1])
+total3_all_below  = f_all_below(total3_ema_fast, total3_ema_mid, total3_ema_slow)
+total3_prev_below = f_all_below(total3_ema_fast[1], total3_ema_mid[1], total3_ema_slow[1])
+total3_bull_break = total3_all_above and not total3_prev_above
+total3_bear_break = total3_all_below and not total3_prev_below
 
 // === Strategy logic ===
 // BTC.D and TOTAL3 must break in the same direction, while USDT.D must break the opposite way
@@ -57,15 +68,16 @@ if short_condition
 bgcolor(long_condition ? color.new(color.green, 85) : short_condition ? color.new(color.red, 85) : na)
 
 // === Inform about daily volume growth on the traded symbol ===
-daily_volume      = request.security(syminfo.tickerid, "D", volume)
-prev_daily_volume = request.security(syminfo.tickerid, "D", volume[1])
+daily_volume       = request.security(syminfo.tickerid, "D", volume)
+prev_daily_volume  = request.security(syminfo.tickerid, "D", volume[1])
 vol_growth_percent = na(prev_daily_volume) or prev_daily_volume == 0 ? na : ((daily_volume - prev_daily_volume) / prev_daily_volume) * 100
-volume_in_range = alert_on_vol and not na(vol_growth_percent) and vol_growth_percent >= 30 and vol_growth_percent <= 70
+volume_in_range    = alert_on_vol and not na(vol_growth_percent) and vol_growth_percent >= 30 and vol_growth_percent <= 70
 
 var label volume_label = na
 if volume_in_range
     label.delete(volume_label)
-    volume_label := label.new(bar_index, high, text=str.tostring(vol_growth_percent, format.mintick) + "% daily volume growth", color=color.new(color.blue, 0), style=label.style_label_up, textcolor=color.white, size=size.tiny)
+    volume_label := label.new(bar_index, high, text=str.tostring(vol_growth_percent, format.mintick) + "% daily volume growth",
+      color=color.new(color.blue, 0), style=label.style_label_up, textcolor=color.white, size=size.tiny)
     alert("Daily volume growth between +30% and +70% detected (" + str.tostring(vol_growth_percent, format.mintick) + "%)", alert.freq_once_per_bar)
 
 // === Optional dominance status table ===

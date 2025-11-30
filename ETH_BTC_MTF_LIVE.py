@@ -563,7 +563,11 @@ STRATEGIES = [
 # ==========================
 
 def main():
-    equity = INITIAL_EQUITY
+    # Ensure equity is numeric even if INITIAL_EQUITY ends up as a string from env loading
+    try:
+        equity = float(INITIAL_EQUITY)
+    except (TypeError, ValueError):
+        raise ValueError("BOT_INITIAL_EQUITY must be a numeric value.")
     positions = []
     last_indices = {}
 

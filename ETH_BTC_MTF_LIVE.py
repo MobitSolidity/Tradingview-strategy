@@ -574,6 +574,7 @@ def main():
     symbols = sorted(set(s["symbol"] for s in STRATEGIES))
 
     print(f"[INIT] Starting equity from .env BOT_INITIAL_EQUITY={equity:.2f} USDT")
+    print(f"[INIT] Tracking symbols: {', '.join(symbols)}")
 
     if TELEGRAM_ENABLED:
         send_telegram(

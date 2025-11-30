@@ -367,44 +367,24 @@ def generate_signals_and_trades(symbol: str,
 # تعریف استراتژی‌ها برای BTC و ETH
 # ==========================
 
-STRATEGIES = [
+
+def build_strategies(strategies: list[dict]) -> list[dict]:
+    seen = set()
+    unique = []
+
+    for strat in strategies:
+        key = (strat.get("symbol"), strat.get("tf"), strat.get("name"))
+        if key in seen:
+            raise ValueError(f"Duplicate strategy detected for {key}; ensure unique (symbol, tf, name).")
+
+        seen.add(key)
+        unique.append(strat)
+
+    return unique
+
+
+STRATEGIES = build_strategies([
     # ---------------- BTCUSDT (همان استراتژی قبلی بیت‌کوین) ----------------
-    {
-        "symbol": "BTCUSDT",
-        "name": "BTC_15m",
-        "tf": "15m",
-        "macd_fast": 8,
-        "macd_slow": 31,
-        "macd_signal": 4,
-        "rsi_len": 10,
-        "rsi_bull": 55,
-        "rsi_bear": 70,
-        "ema_trend_len": 200,
-    },
-    {
-        "symbol": "BTCUSDT",
-        "name": "BTC_1h",
-        "tf": "1h",
-        "macd_fast": 10,
-        "macd_slow": 26,
-        "macd_signal": 6,
-        "rsi_len": 14,
-        "rsi_bull": 50,
-        "rsi_bear": 70,
-        "ema_trend_len": 150,
-    },
-    {
-        "symbol": "BTCUSDT",
-        "name": "BTC_4h",
-        "tf": "4h",
-        "macd_fast": 13,
-        "macd_slow": 31,
-        "macd_signal": 9,
-        "rsi_len": 20,
-        "rsi_bull": 45,
-        "rsi_bear": 60,
-        "ema_trend_len": 150,
-    },
     {
         "symbol": "BTCUSDT",
         "name": "BTC_15m",
@@ -571,7 +551,7 @@ STRATEGIES = [
         "rsi_bear": 60,
         "ema_trend_len": 125,
     },
-]
+])
 
 # ==========================
 # حلقه اصلی

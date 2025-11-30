@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradingview-strategy"
+version = "0.1.0"
+description = "Live MACD+RSI multi-timeframe strategy runner for BTC and ETH"
+readme = "README.md"
+authors = [{ name = "Trading Bot Maintainers" }]
+requires-python = ">=3.11"
+dependencies = [
+  "pandas",
+  "requests",
+  "python-dotenv",
+]
+
+[project.scripts]
+eth-btc-mtf-live = "ETH_BTC_MTF_LIVE:main_cli"
+
+[tool.setuptools]
+py-modules = ["ETH_BTC_MTF_LIVE"]
+
+[tool.ruff]
+line-length = 160
+
+[tool.ruff.lint]
+extend-ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false
+allow_untyped_defs = true
+allow_untyped_calls = true

@@ -2,10 +2,12 @@ import argparse
 import math
 import os
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Sequence
 
 import pandas as pd
-import requests
+import requests  # type: ignore[import-untyped]
 from dotenv import load_dotenv
 
 # ==========================
@@ -136,12 +138,12 @@ def compute_atr(df: pd.DataFrame, length: int) -> pd.Series:
     return atr
 
 
-def add_indicators(df: pd.DataFrame, params: dict) -> pd.DataFrame:
-    macd_fast   = params["macd_fast"]
-    macd_slow   = params["macd_slow"]
-    macd_signal = params["macd_signal"]
-    rsi_len     = params["rsi_len"]
-    ema_len     = params["ema_trend_len"]
+def add_indicators(df: pd.DataFrame, params: "StrategyConfig") -> pd.DataFrame:
+    macd_fast = params.macd_fast
+    macd_slow = params.macd_slow
+    macd_signal = params.macd_signal
+    rsi_len = params.rsi_len
+    ema_len = params.ema_trend_len
 
     close = df["close"]
 
@@ -194,7 +196,7 @@ class Position:
         return f"<Pos {self.symbol} {self.tf} {self.direction} entry={self.entry} sl={self.sl} tp={self.tp} qty={self.qty} status={self.status}>"
 
 
-def process_exits(symbol: str, tf: str, df: pd.DataFrame, positions: list, equity: float):
+def process_exits(symbol: str, tf: str, df: pd.DataFrame, positions: list["Position"], equity: float):
     """
     روی تمام پوزیشن‌های باز در این نماد/تایم‌فریم می‌گردد و اگر high/low کندل SL/TP را زد، پوزیشن را می‌بندد.
     """
@@ -265,14 +267,14 @@ def process_exits(symbol: str, tf: str, df: pd.DataFrame, positions: list, equit
 
 def generate_signals_and_trades(symbol: str,
                                 df: pd.DataFrame,
-                                params: dict,
+                                params: "StrategyConfig",
                                 last_idx: int,
-                                positions: list,
-                                equity: float):
-    tf = params["tf"]
-    rsi_bull = params["rsi_bull"]
-    rsi_bear = params["rsi_bear"]
-    strat_name = params.get("name", f"{symbol}_{tf}")
+                                positions: list["Position"],
+                                equity: float) -> tuple[int, list["Position"], float]:
+    tf = params.tf
+    rsi_bull = params.rsi_bull
+    rsi_bear = params.rsi_bear
+    strat_name = params.name or f"{symbol}_{tf}"
 
     if len(df) < 3:
         return last_idx, positions, equity
@@ -368,189 +370,222 @@ def generate_signals_and_trades(symbol: str,
 # ==========================
 
 
-def build_strategies(strategies: list[dict]) -> list[dict]:
-    seen = set()
-    unique = []
+@dataclass(frozen=True)
+class StrategyConfig:
+    symbol: str
+    name: str
+    tf: str
+    macd_fast: int
+    macd_slow: int
+    macd_signal: int
+    rsi_len: int
+    rsi_bull: int
+    rsi_bear: int
+    ema_trend_len: int
+
+
+def format_strategy_key(symbol: str, tf: str, name: str) -> str:
+    return f"{symbol}:{tf}:{name}"
+
+
+def build_strategies(strategies: Sequence[StrategyConfig]) -> list[StrategyConfig]:
+    """Validate strategies and enforce unique (symbol, tf, name) tuples.
+
+    Returns the validated list so the declaration stays concise while failing fast if
+    the same strategy is declared multiple times.
+    """
+
+    seen: set[tuple[str, str, str]] = set()
+    duplicates: list[str] = []
+    validated: list[StrategyConfig] = []
 
     for strat in strategies:
-        key = (strat.get("symbol"), strat.get("tf"), strat.get("name"))
+        key = (strat.symbol, strat.tf, strat.name)
         if key in seen:
-            raise ValueError(f"Duplicate strategy detected for {key}; ensure unique (symbol, tf, name).")
+            duplicates.append(format_strategy_key(*key))
+            continue
 
         seen.add(key)
-        unique.append(strat)
+        validated.append(strat)
 
-    return unique
+    if duplicates:
+        duplicate_list = ", ".join(duplicates)
+        raise ValueError(
+            "Duplicate strategy definitions detected; ensure each (symbol, tf, name) "
+            f"combination is unique. Offending entries: {duplicate_list}."
+        )
+
+    return validated
 
 
-STRATEGIES = build_strategies([
+STRATEGIES: list[StrategyConfig] = build_strategies([
     # ---------------- BTCUSDT (همان استراتژی قبلی بیت‌کوین) ----------------
-    {
-        "symbol": "BTCUSDT",
-        "name": "BTC_15m",
-        "tf": "15m",
-        "macd_fast": 8,
-        "macd_slow": 31,
-        "macd_signal": 4,
-        "rsi_len": 10,
-        "rsi_bull": 55,
-        "rsi_bear": 70,
-        "ema_trend_len": 200,
-    },
-    {
-        "symbol": "BTCUSDT",
-        "name": "BTC_1h",
-        "tf": "1h",
-        "macd_fast": 10,
-        "macd_slow": 26,
-        "macd_signal": 6,
-        "rsi_len": 14,
-        "rsi_bull": 50,
-        "rsi_bear": 70,
-        "ema_trend_len": 150,
-    },
-    {
-        "symbol": "BTCUSDT",
-        "name": "BTC_4h",
-        "tf": "4h",
-        "macd_fast": 13,
-        "macd_slow": 31,
-        "macd_signal": 9,
-        "rsi_len": 20,
-        "rsi_bull": 45,
-        "rsi_bear": 60,
-        "ema_trend_len": 150,
-    },
+    StrategyConfig(
+        symbol="BTCUSDT",
+        name="BTC_15m",
+        tf="15m",
+        macd_fast=8,
+        macd_slow=31,
+        macd_signal=4,
+        rsi_len=10,
+        rsi_bull=55,
+        rsi_bear=70,
+        ema_trend_len=200,
+    ),
+    StrategyConfig(
+        symbol="BTCUSDT",
+        name="BTC_1h",
+        tf="1h",
+        macd_fast=10,
+        macd_slow=26,
+        macd_signal=6,
+        rsi_len=14,
+        rsi_bull=50,
+        rsi_bear=70,
+        ema_trend_len=150,
+    ),
+    StrategyConfig(
+        symbol="BTCUSDT",
+        name="BTC_4h",
+        tf="4h",
+        macd_fast=13,
+        macd_slow=31,
+        macd_signal=9,
+        rsi_len=20,
+        rsi_bull=45,
+        rsi_bear=60,
+        ema_trend_len=150,
+    ),
 
     # ----- BTCUSDT Daily از فایل 1d جدید -----
-    {
-        "symbol": "BTCUSDT",
-        "name": "BTC_1d_1",
-        "tf": "1d",
-        "macd_fast": 10,
-        "macd_slow": 22,
-        "macd_signal": 4,
-        "rsi_len": 12,
-        "rsi_bull": 45,
-        "rsi_bear": 55,
-        "ema_trend_len": 100,
-    },
-    {
-        "symbol": "BTCUSDT",
-        "name": "BTC_1d_2",
-        "tf": "1d",
-        "macd_fast": 10,
-        "macd_slow": 31,
-        "macd_signal": 4,
-        "rsi_len": 18,
-        "rsi_bull": 50,
-        "rsi_bear": 55,
-        "ema_trend_len": 100,
-    },
+    StrategyConfig(
+        symbol="BTCUSDT",
+        name="BTC_1d_1",
+        tf="1d",
+        macd_fast=10,
+        macd_slow=22,
+        macd_signal=4,
+        rsi_len=12,
+        rsi_bull=45,
+        rsi_bear=55,
+        ema_trend_len=100,
+    ),
+    StrategyConfig(
+        symbol="BTCUSDT",
+        name="BTC_1d_2",
+        tf="1d",
+        macd_fast=10,
+        macd_slow=31,
+        macd_signal=4,
+        rsi_len=18,
+        rsi_bull=50,
+        rsi_bear=55,
+        ema_trend_len=100,
+    ),
     # ---------------- ETHUSDT – ۲ استراتژی برتر در هر TF ----------------
     # 1D – دو استراتژی برتر از فایل 1d
-    {
-        "symbol": "ETHUSDT",
-        "name": "ETH_1d_1",
-        "tf": "1d",
-        "macd_fast": 12,
-        "macd_slow": 16,
-        "macd_signal": 4,
-        "rsi_len": 14,
-        "rsi_bull": 40,
-        "rsi_bear": 65,
-        "ema_trend_len": 50,
-    },
-    {
-        "symbol": "ETHUSDT",
-        "name": "ETH_1d_2",
-        "tf": "1d",
-        "macd_fast": 6,
-        "macd_slow": 16,
-        "macd_signal": 8,
-        "rsi_len": 14,
-        "rsi_bull": 40,
-        "rsi_bear": 65,
-        "ema_trend_len": 100,
-    },
+    StrategyConfig(
+        symbol="ETHUSDT",
+        name="ETH_1d_1",
+        tf="1d",
+        macd_fast=12,
+        macd_slow=16,
+        macd_signal=4,
+        rsi_len=14,
+        rsi_bull=40,
+        rsi_bear=65,
+        ema_trend_len=50,
+    ),
+    StrategyConfig(
+        symbol="ETHUSDT",
+        name="ETH_1d_2",
+        tf="1d",
+        macd_fast=6,
+        macd_slow=16,
+        macd_signal=8,
+        rsi_len=14,
+        rsi_bull=40,
+        rsi_bear=65,
+        ema_trend_len=100,
+    ),
 
     # 4H – دو استراتژی برتر از فایل 4h
-    {
-        "symbol": "ETHUSDT",
-        "name": "ETH_4h_1",
-        "tf": "4h",
-        "macd_fast": 10,
-        "macd_slow": 31,
-        "macd_signal": 6,
-        "rsi_len": 10,
-        "rsi_bull": 50,
-        "rsi_bear": 60,
-        "ema_trend_len": 75,
-    },
-    {
-        "symbol": "ETHUSDT",
-        "name": "ETH_4h_2",
-        "tf": "4h",
-        "macd_fast": 10,
-        "macd_slow": 31,
-        "macd_signal": 6,
-        "rsi_len": 10,
-        "rsi_bull": 55,
-        "rsi_bear": 60,
-        "ema_trend_len": 75,
-    },
+    StrategyConfig(
+        symbol="ETHUSDT",
+        name="ETH_4h_1",
+        tf="4h",
+        macd_fast=10,
+        macd_slow=31,
+        macd_signal=6,
+        rsi_len=10,
+        rsi_bull=50,
+        rsi_bear=60,
+        ema_trend_len=75,
+    ),
+    StrategyConfig(
+        symbol="ETHUSDT",
+        name="ETH_4h_2",
+        tf="4h",
+        macd_fast=10,
+        macd_slow=31,
+        macd_signal=6,
+        rsi_len=10,
+        rsi_bull=55,
+        rsi_bear=60,
+        ema_trend_len=75,
+    ),
 
     # 1H – دو استراتژی برتر از فایل 1h
-    {
-        "symbol": "ETHUSDT",
-        "name": "ETH_1h_1",
-        "tf": "1h",
-        "macd_fast": 10,
-        "macd_slow": 19,
-        "macd_signal": 6,
-        "rsi_len": 10,
-        "rsi_bull": 45,
-        "rsi_bear": 60,
-        "ema_trend_len": 50,
-    },
-    {
-        "symbol": "ETHUSDT",
-        "name": "ETH_1h_2",
-        "tf": "1h",
-        "macd_fast": 6,
-        "macd_slow": 19,
-        "macd_signal": 10,
-        "rsi_len": 10,
-        "rsi_bull": 45,
-        "rsi_bear": 65,
-        "ema_trend_len": 50,
-    },
+    StrategyConfig(
+        symbol="ETHUSDT",
+        name="ETH_1h_1",
+        tf="1h",
+        macd_fast=10,
+        macd_slow=19,
+        macd_signal=6,
+        rsi_len=10,
+        rsi_bull=45,
+        rsi_bear=60,
+        ema_trend_len=50,
+    ),
+    StrategyConfig(
+        symbol="ETHUSDT",
+        name="ETH_1h_2",
+        tf="1h",
+        macd_fast=6,
+        macd_slow=19,
+        macd_signal=10,
+        rsi_len=10,
+        rsi_bull=45,
+        rsi_bear=65,
+        ema_trend_len=50,
+    ),
 
     # 15M – دو استراتژی برتر از فایل 15m
-    {
-        "symbol": "ETHUSDT",
-        "name": "ETH_15m_1",
-        "tf": "15m",
-        "macd_fast": 8,
-        "macd_slow": 16,
-        "macd_signal": 4,
-        "rsi_len": 14,
-        "rsi_bull": 40,
-        "rsi_bear": 70,
-        "ema_trend_len": 50,
-    },
-    {
-        "symbol": "ETHUSDT",
-        "name": "ETH_15m_2",
-        "tf": "15m",
-        "macd_fast": 12,
-        "macd_slow": 31,
-        "macd_signal": 10,
-        "rsi_len": 14,
-        "rsi_bull": 45,
-        "rsi_bear": 60,
-        "ema_trend_len": 125,
-    },
+    StrategyConfig(
+        symbol="ETHUSDT",
+        name="ETH_15m_1",
+        tf="15m",
+        macd_fast=8,
+        macd_slow=16,
+        macd_signal=4,
+        rsi_len=14,
+        rsi_bull=40,
+        rsi_bear=70,
+        ema_trend_len=50,
+    ),
+    StrategyConfig(
+        symbol="ETHUSDT",
+        name="ETH_15m_2",
+        tf="15m",
+        macd_fast=12,
+        macd_slow=31,
+        macd_signal=10,
+        rsi_len=14,
+        rsi_bull=45,
+        rsi_bear=60,
+        ema_trend_len=125,
+    ),
 ])
 
 # ==========================
@@ -563,10 +598,10 @@ def main(run_once: bool = False, disable_telegram: bool = False):
         equity = float(INITIAL_EQUITY)
     except (TypeError, ValueError):
         raise ValueError("BOT_INITIAL_EQUITY must be a numeric value.")
-    positions = []
-    last_indices = {}
+    positions: list[Position] = []
+    last_indices: dict[tuple[str, str, str], int] = {}
 
-    symbols = sorted(set(s["symbol"] for s in STRATEGIES))
+    symbols = sorted({s.symbol for s in STRATEGIES})
 
     configure_telegram(disable_telegram)
     print(f"[INIT] Starting equity from .env BOT_INITIAL_EQUITY={equity:.2f} USDT")
@@ -582,9 +617,9 @@ def main(run_once: bool = False, disable_telegram: bool = False):
 
     while True:
         # برای هر ترکیب (symbol, tf) یکبار دیتا می‌گیریم
-        by_symbol_tf = {}
+        by_symbol_tf: dict[tuple[str, str], list[StrategyConfig]] = {}
         for strat in STRATEGIES:
-            key = (strat["symbol"], strat["tf"])
+            key = (strat.symbol, strat.tf)
             by_symbol_tf.setdefault(key, []).append(strat)
 
         for (symbol, tf), strat_list in by_symbol_tf.items():
@@ -600,15 +635,15 @@ def main(run_once: bool = False, disable_telegram: bool = False):
                     if len(df) == 0:
                         continue
 
-                    key = (symbol, tf, strat["name"])
-                    last_idx_prev = last_indices.get(key, len(df) - WARMUP_BARS - 1)
+                    strat_key = (symbol, tf, strat.name)
+                    last_idx_prev = last_indices.get(strat_key, len(df) - WARMUP_BARS - 1)
 
                     last_idx_new, positions, equity = generate_signals_and_trades(
                         symbol, df, strat, last_idx_prev, positions, equity
                     )
-                    last_indices[key] = last_idx_new
+                    last_indices[strat_key] = last_idx_new
                 except Exception as e:
-                    print(f"[ERROR] strat {strat['name']} {symbol} {tf}: {e}")
+                    print(f"[ERROR] strat {strat.name} {symbol} {tf}: {e}")
 
         if run_once:
             print("[LOOP] Completed one iteration; exiting because --once was provided.")
@@ -632,6 +667,10 @@ def parse_args():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+def main_cli():
     args = parse_args()
     main(run_once=args.once, disable_telegram=args.disable_telegram)
+
+
+if __name__ == "__main__":
+    main_cli()

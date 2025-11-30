@@ -19,7 +19,7 @@ This repo contains Pine Script strategies for TradingView.
    TG_CHAT_ID=               # optional: chat/group ID for alerts
    ```
 
-4. Run the live strategy script:
+4. Run the live strategy script (structured logs are emitted as JSON on stdout and trade/equity snapshots are persisted under `BOT_DATA_DIR`, default `./data`):
 
    ```bash
    python ETH_BTC_MTF_LIVE.py
@@ -27,8 +27,15 @@ This repo contains Pine Script strategies for TradingView.
 
    Useful flags while testing:
 
-   - `--once` runs a single loop iteration so you can validate connectivity without an endless process.
+   - `--cmd once` (or `--once`) runs a single loop iteration so you can validate connectivity without an endless process.
+   - `--cmd healthcheck` performs validation plus a Binance time ping and exits with a status code.
    - `--disable-telegram` skips all Telegram calls (you can also set `TG_ENABLED=false`).
+
+   Additional runtime envs:
+
+   - `BOT_CMD`: default `run`; set `once` or `healthcheck` to change container entrypoint behavior.
+   - `BOT_DATA_DIR`: folder where `trades.jsonl` and `equity.jsonl` snapshots are written.
+   - `BOT_LOG_LEVEL`: INFO/WARNING/ERROR to adjust console verbosity.
 
 ## Packaging and Docker
 
@@ -38,8 +45,10 @@ This repo contains Pine Script strategies for TradingView.
 
   ```bash
   docker build -t project:latest .
-  docker run --rm project:latest
+  docker run --rm -e BOT_CMD=once -e TG_ENABLED=false project:latest
   ```
+
+  The container entrypoint respects `BOT_CMD` (run/once/healthcheck), `BOT_DISABLE_TELEGRAM`, `BOT_DATA_DIR`, and Telegram/Binance envs. A built-in `HEALTHCHECK` executes `healthcheck.sh`, which wraps `python ETH_BTC_MTF_LIVE.py --cmd healthcheck`.
 
 ## Multi-Market Dominance EMA Break Strategy
 

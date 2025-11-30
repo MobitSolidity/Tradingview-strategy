@@ -601,8 +601,9 @@ def main():
         f"{len(combo_counts)} symbol/TF pairs"
     )
     for (symbol, tf), count in sorted(combo_counts.items()):
-        names = ", ".join(sorted(strat["name"] for strat in by_symbol_tf[(symbol, tf)]))
-        print(f"[INIT]  - {symbol} {tf}: {count} setup(s) [{names}]")
+        print(f"[INIT]  - {symbol} {tf}: {count} setup(s)")
+
+    print(f"[INIT] Starting equity from .env BOT_INITIAL_EQUITY={equity:.2f} USDT")
 
     if TELEGRAM_ENABLED:
         send_telegram(

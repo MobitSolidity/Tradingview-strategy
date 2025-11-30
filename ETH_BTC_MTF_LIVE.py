@@ -784,7 +784,7 @@ def process_exits(symbol: str, tf: str, df: pd.DataFrame, positions: list["Posit
                     reason = "TP"
                     closed = True
 
-            if closed and close_price is not None:
+            if closed and close_price is not None and reason is not None:
                 pos.status = "CLOSED"
                 pos.close_time = bar_time
                 pos.close_price = close_price

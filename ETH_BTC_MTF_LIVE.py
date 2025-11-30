@@ -23,7 +23,14 @@ POLL_INTERVAL = 60       # فاصله بین هر حلقه (ثانیه)
 ATR_LEN = 14
 
 # مدیریت سرمایه (اکوییتی مشترک برای همه‌ی تریدها روی BTC و ETH)
-INITIAL_EQUITY = os.getenv("BOT_INITIAL_EQUITY", "")   # سرمایه فرضی اولیه
+equity_env = os.getenv("BOT_INITIAL_EQUITY")
+if not equity_env:
+    raise ValueError("BOT_INITIAL_EQUITY is not set in the environment/.env file.")
+
+try:
+    INITIAL_EQUITY = float(equity_env)
+except ValueError as exc:
+    raise ValueError("BOT_INITIAL_EQUITY must be a numeric value.") from exc
 RISK_PCT = 1.0           # درصد ریسک هر ترید از equity (مثلاً 1%)
 
 # ==========================
@@ -63,6 +70,24 @@ def send_telegram(text: str):
 def notify_signal(text: str):
     print(text)
     send_telegram(text)
+
+
+def summarize_combos(strategies: list) -> dict:
+    """Count how many strategy setups exist per (symbol, timeframe) combo."""
+    combos: dict = {}
+    for strat in strategies:
+        key = (strat["symbol"], strat["tf"])
+        combos[key] = combos.get(key, 0) + 1
+    return combos
+
+
+def group_strategies_by_symbol_tf(strategies: list) -> dict:
+    """Group strategies by their (symbol, timeframe) key for consistent counting."""
+    grouped: dict = {}
+    for strat in strategies:
+        key = (strat["symbol"], strat["tf"])
+        grouped.setdefault(key, []).append(strat)
+    return grouped
 
 # ==========================
 # ابزارهای دیتا و اندیکاتور
@@ -556,11 +581,28 @@ STRATEGIES = [
 # ==========================
 
 def main():
-    equity = INITIAL_EQUITY
+    # Ensure equity is numeric even if INITIAL_EQUITY ends up as a string from env loading
+    try:
+        equity = float(INITIAL_EQUITY)
+    except (TypeError, ValueError):
+        raise ValueError("BOT_INITIAL_EQUITY must be a numeric value.")
     positions = []
     last_indices = {}
 
-    symbols = sorted(set(s["symbol"] for s in STRATEGIES))
+    by_symbol_tf = group_strategies_by_symbol_tf(STRATEGIES)
+    symbols = sorted({sym for sym, _ in by_symbol_tf.keys()})
+    combo_counts = {key: len(strats) for key, strats in by_symbol_tf.items()}
+    total_combos = sum(combo_counts.values())
+
+    print(f"[INIT] Starting equity from .env BOT_INITIAL_EQUITY={equity:.2f} USDT")
+    print(f"[INIT] Tracking symbols: {', '.join(symbols)}")
+    print(
+        f"[INIT] Strategy combos: {total_combos} setups across "
+        f"{len(combo_counts)} symbol/TF pairs"
+    )
+    for (symbol, tf), count in sorted(combo_counts.items()):
+        names = ", ".join(sorted(strat["name"] for strat in by_symbol_tf[(symbol, tf)]))
+        print(f"[INIT]  - {symbol} {tf}: {count} setup(s) [{names}]")
 
     if TELEGRAM_ENABLED:
         send_telegram(
@@ -573,11 +615,6 @@ def main():
 
     while True:
         # برای هر ترکیب (symbol, tf) یکبار دیتا می‌گیریم
-        by_symbol_tf = {}
-        for strat in STRATEGIES:
-            key = (strat["symbol"], strat["tf"])
-            by_symbol_tf.setdefault(key, []).append(strat)
-
         for (symbol, tf), strat_list in by_symbol_tf.items():
             try:
                 df_raw = fetch_klines(symbol, tf, limit=500)

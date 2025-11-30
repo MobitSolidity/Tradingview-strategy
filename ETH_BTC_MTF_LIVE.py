@@ -23,7 +23,14 @@ POLL_INTERVAL = 60       # فاصله بین هر حلقه (ثانیه)
 ATR_LEN = 14
 
 # مدیریت سرمایه (اکوییتی مشترک برای همه‌ی تریدها روی BTC و ETH)
-INITIAL_EQUITY = os.getenv("BOT_INITIAL_EQUITY", "")   # سرمایه فرضی اولیه
+equity_env = os.getenv("BOT_INITIAL_EQUITY")
+if not equity_env:
+    raise ValueError("BOT_INITIAL_EQUITY is not set in the environment/.env file.")
+
+try:
+    INITIAL_EQUITY = float(equity_env)
+except ValueError as exc:
+    raise ValueError("BOT_INITIAL_EQUITY must be a numeric value.") from exc
 RISK_PCT = 1.0           # درصد ریسک هر ترید از equity (مثلاً 1%)
 
 # ==========================
@@ -63,6 +70,15 @@ def send_telegram(text: str):
 def notify_signal(text: str):
     print(text)
     send_telegram(text)
+
+
+def summarize_combos(strategies: list) -> dict:
+    """Count how many strategy setups exist per (symbol, timeframe) combo."""
+    combos: dict = {}
+    for strat in strategies:
+        key = (strat["symbol"], strat["tf"])
+        combos[key] = combos.get(key, 0) + 1
+    return combos
 
 # ==========================
 # ابزارهای دیتا و اندیکاتور
@@ -556,11 +572,26 @@ STRATEGIES = [
 # ==========================
 
 def main():
-    equity = INITIAL_EQUITY
+    # Ensure equity is numeric even if INITIAL_EQUITY ends up as a string from env loading
+    try:
+        equity = float(INITIAL_EQUITY)
+    except (TypeError, ValueError):
+        raise ValueError("BOT_INITIAL_EQUITY must be a numeric value.")
     positions = []
     last_indices = {}
 
     symbols = sorted(set(s["symbol"] for s in STRATEGIES))
+    combo_counts = summarize_combos(STRATEGIES)
+    total_combos = sum(combo_counts.values())
+
+    print(f"[INIT] Starting equity from .env BOT_INITIAL_EQUITY={equity:.2f} USDT")
+    print(f"[INIT] Tracking symbols: {', '.join(symbols)}")
+    print(
+        f"[INIT] Strategy combos: {total_combos} setups across "
+        f"{len(combo_counts)} symbol/TF pairs"
+    )
+    for (symbol, tf), count in sorted(combo_counts.items()):
+        print(f"[INIT]  - {symbol} {tf}: {count} setup(s)")
 
     if TELEGRAM_ENABLED:
         send_telegram(

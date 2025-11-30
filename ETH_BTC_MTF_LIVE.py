@@ -71,6 +71,15 @@ def notify_signal(text: str):
     print(text)
     send_telegram(text)
 
+
+def summarize_combos(strategies: list) -> dict:
+    """Count how many strategy setups exist per (symbol, timeframe) combo."""
+    combos: dict = {}
+    for strat in strategies:
+        key = (strat["symbol"], strat["tf"])
+        combos[key] = combos.get(key, 0) + 1
+    return combos
+
 # ==========================
 # ابزارهای دیتا و اندیکاتور
 # ==========================
@@ -572,6 +581,17 @@ def main():
     last_indices = {}
 
     symbols = sorted(set(s["symbol"] for s in STRATEGIES))
+    combo_counts = summarize_combos(STRATEGIES)
+    total_combos = sum(combo_counts.values())
+
+    print(f"[INIT] Starting equity from .env BOT_INITIAL_EQUITY={equity:.2f} USDT")
+    print(f"[INIT] Tracking symbols: {', '.join(symbols)}")
+    print(
+        f"[INIT] Strategy combos: {total_combos} setups across "
+        f"{len(combo_counts)} symbol/TF pairs"
+    )
+    for (symbol, tf), count in sorted(combo_counts.items()):
+        print(f"[INIT]  - {symbol} {tf}: {count} setup(s)")
 
     print(f"[INIT] Starting equity from .env BOT_INITIAL_EQUITY={equity:.2f} USDT")
 

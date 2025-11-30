@@ -80,6 +80,15 @@ def summarize_combos(strategies: list) -> dict:
         combos[key] = combos.get(key, 0) + 1
     return combos
 
+
+def group_strategies_by_symbol_tf(strategies: list) -> dict:
+    """Group strategies by their (symbol, timeframe) key for consistent counting."""
+    grouped: dict = {}
+    for strat in strategies:
+        key = (strat["symbol"], strat["tf"])
+        grouped.setdefault(key, []).append(strat)
+    return grouped
+
 # ==========================
 # ابزارهای دیتا و اندیکاتور
 # ==========================
@@ -580,8 +589,9 @@ def main():
     positions = []
     last_indices = {}
 
-    symbols = sorted(set(s["symbol"] for s in STRATEGIES))
-    combo_counts = summarize_combos(STRATEGIES)
+    by_symbol_tf = group_strategies_by_symbol_tf(STRATEGIES)
+    symbols = sorted({sym for sym, _ in by_symbol_tf.keys()})
+    combo_counts = {key: len(strats) for key, strats in by_symbol_tf.items()}
     total_combos = sum(combo_counts.values())
 
     print(f"[INIT] Starting equity from .env BOT_INITIAL_EQUITY={equity:.2f} USDT")
@@ -606,11 +616,6 @@ def main():
 
     while True:
         # برای هر ترکیب (symbol, tf) یکبار دیتا می‌گیریم
-        by_symbol_tf = {}
-        for strat in STRATEGIES:
-            key = (strat["symbol"], strat["tf"])
-            by_symbol_tf.setdefault(key, []).append(strat)
-
         for (symbol, tf), strat_list in by_symbol_tf.items():
             try:
                 df_raw = fetch_klines(symbol, tf, limit=500)

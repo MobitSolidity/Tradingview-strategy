@@ -1,9 +1,11 @@
-import time
+import argparse
 import math
 import os
-import requests
-import pandas as pd
+import time
 from datetime import datetime, timezone
+
+import pandas as pd
+import requests
 from dotenv import load_dotenv
 
 # ==========================
@@ -37,7 +39,7 @@ RISK_PCT = 1.0           # درصد ریسک هر ترید از equity (مثلا
 # Telegram config
 # ==========================
 
-TELEGRAM_ENABLED   = True
+TELEGRAM_ENABLED   = os.getenv("TG_ENABLED", "true").lower() not in {"false", "0", "no"}
 TELEGRAM_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.getenv("TG_CHAT_ID", "")
 
@@ -70,6 +72,19 @@ def send_telegram(text: str):
 def notify_signal(text: str):
     print(text)
     send_telegram(text)
+
+
+def configure_telegram(disable_telegram: bool):
+    global TELEGRAM_ENABLED
+
+    if disable_telegram:
+        TELEGRAM_ENABLED = False
+        print("[TG] Disabled via command-line flag.")
+        return
+
+    if TELEGRAM_ENABLED and (not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID):
+        TELEGRAM_ENABLED = False
+        print("[TG] Disabled: TG_BOT_TOKEN or TG_CHAT_ID missing; set TG_ENABLED=false to silence this warning.")
 
 # ==========================
 # ابزارهای دیتا و اندیکاتور
@@ -562,7 +577,7 @@ STRATEGIES = [
 # حلقه اصلی
 # ==========================
 
-def main():
+def main(run_once: bool = False, disable_telegram: bool = False):
     # Ensure equity is numeric even if INITIAL_EQUITY ends up as a string from env loading
     try:
         equity = float(INITIAL_EQUITY)
@@ -573,6 +588,7 @@ def main():
 
     symbols = sorted(set(s["symbol"] for s in STRATEGIES))
 
+    configure_telegram(disable_telegram)
     print(f"[INIT] Starting equity from .env BOT_INITIAL_EQUITY={equity:.2f} USDT")
 
     if TELEGRAM_ENABLED:
@@ -614,8 +630,28 @@ def main():
                 except Exception as e:
                     print(f"[ERROR] strat {strat['name']} {symbol} {tf}: {e}")
 
+        if run_once:
+            print("[LOOP] Completed one iteration; exiting because --once was provided.")
+            break
+
         time.sleep(POLL_INTERVAL)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run the MACD+RSI multi-timeframe strategy loop.")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single iteration of data fetch & signal generation (useful for testing)",
+    )
+    parser.add_argument(
+        "--disable-telegram",
+        action="store_true",
+        help="Skip Telegram notifications even if TG_BOT_TOKEN and TG_CHAT_ID are configured.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(run_once=args.once, disable_telegram=args.disable_telegram)

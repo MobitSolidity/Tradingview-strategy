@@ -14,6 +14,7 @@ This repo contains Pine Script strategies for TradingView.
 
    ```bash
    BOT_INITIAL_EQUITY=1000   # your starting USDT balance
+   TG_ENABLED=true           # set to false to silence Telegram entirely
    TG_BOT_TOKEN=             # optional: Telegram bot token
    TG_CHAT_ID=               # optional: chat/group ID for alerts
    ```
@@ -23,6 +24,11 @@ This repo contains Pine Script strategies for TradingView.
    ```bash
    python ETH_BTC_MTF_LIVE.py
    ```
+
+   Useful flags while testing:
+
+   - `--once` runs a single loop iteration so you can validate connectivity without an endless process.
+   - `--disable-telegram` skips all Telegram calls (you can also set `TG_ENABLED=false`).
 
 ## Multi-Market Dominance EMA Break Strategy
 

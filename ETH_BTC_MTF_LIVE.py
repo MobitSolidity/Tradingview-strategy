@@ -23,7 +23,14 @@ POLL_INTERVAL = 60       # فاصله بین هر حلقه (ثانیه)
 ATR_LEN = 14
 
 # مدیریت سرمایه (اکوییتی مشترک برای همه‌ی تریدها روی BTC و ETH)
-INITIAL_EQUITY = os.getenv("BOT_INITIAL_EQUITY", "")   # سرمایه فرضی اولیه
+equity_env = os.getenv("BOT_INITIAL_EQUITY")
+if not equity_env:
+    raise ValueError("BOT_INITIAL_EQUITY is not set in the environment/.env file.")
+
+try:
+    INITIAL_EQUITY = float(equity_env)
+except ValueError as exc:
+    raise ValueError("BOT_INITIAL_EQUITY must be a numeric value.") from exc
 RISK_PCT = 1.0           # درصد ریسک هر ترید از equity (مثلاً 1%)
 
 # ==========================
@@ -561,6 +568,8 @@ def main():
     last_indices = {}
 
     symbols = sorted(set(s["symbol"] for s in STRATEGIES))
+
+    print(f"[INIT] Starting equity from .env BOT_INITIAL_EQUITY={equity:.2f} USDT")
 
     if TELEGRAM_ENABLED:
         send_telegram(
